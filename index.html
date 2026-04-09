@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Piano Peinture V6.1 – Three.js</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;font-family:'Courier New',monospace}
+#ui{position:fixed;top:14px;left:14px;z-index:20;display:flex;flex-direction:column;gap:7px;pointer-events:none}
+.panel{background:rgba(0,0,0,0.68);border:0.5px solid rgba(255,255,255,0.13);border-radius:8px;padding:9px 13px;pointer-events:all}
+.ptitle{font-size:9px;letter-spacing:.14em;color:rgba(255,255,255,.28);text-transform:uppercase;margin-bottom:7px}
+.row{display:flex;align-items:center;gap:9px;margin:4px 0}
+label{font-size:11px;color:rgba(255,255,255,.38);min-width:82px}
+select{background:rgba(255,255,255,.06);border:0.5px solid rgba(255,255,255,.16);border-radius:4px;color:rgba(255,255,255,.82);padding:3px 6px;font-size:11px;font-family:inherit;cursor:pointer;outline:none}
+input[type=range]{-webkit-appearance:none;width:88px;height:3px;border-radius:2px;background:rgba(255,255,255,.14);outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:#9b96d4;cursor:pointer}
+.val{font-size:11px;color:rgba(255,255,255,.38);min-width:32px}
+#midi-dot{width:8px;height:8px;border-radius:50%;background:#333;flex-shrink:0;transition:background .4s}
+#midi-dot.on{background:#4dff91;box-shadow:0 0 5px #4dff91}
+#midi-dot.err{background:#ff5555}
+#note-log{display:flex;flex-direction:column;gap:3px;max-height:80px;overflow:hidden}
+.nrow{display:flex;align-items:center;gap:7px;font-size:10px}
+.nbadge{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+#hint{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:rgba(255,255,255,.2);font-size:13px;line-height:2.2;pointer-events:none;transition:opacity 1.5s;z-index:5}
+#hint.gone{opacity:0}
+#kbhint{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);font-size:10px;color:rgba(255,255,255,.13);pointer-events:none;z-index:5}
+#ped-ind{position:fixed;bottom:10px;right:14px;font-size:10px;letter-spacing:.1em;pointer-events:none;color:rgba(255,255,255,.15);z-index:5}
+#ped-ind.on{color:#9b96d4}
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <div class="panel">
+    <div class="row" style="gap:8px">
+      <div id="midi-dot"></div>
+      <span id="midi-label" style="font-size:11px;color:rgba(255,255,255,.55)">Connexion MIDI…</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ptitle">Peinture</div>
+    <div class="row"><label>Palette</label>
+      <select id="pal-sel">
+        <option value="0">0 – Saturée</option><option value="1">1 – Pastel</option>
+        <option value="2">2 – Chaude</option><option value="3">3 – Vive</option>
+        <option value="4">4 – Bleu-violet</option>
+      </select>
+    </div>
+    <div class="row"><label>Fond</label>
+      <select id="bg-sel">
+        <option value="0,0,0">Noir</option>
+        <option value="0.024,0.039,0.141">Bleu nuit</option>
+        <option value="0.071,0.024,0.110">Violet sombre</option>
+        <option value="0.047,0.047,0.047">Gris sombre</option>
+        <option value="0.957,0.941,0.910">Blanc chaud</option>
+      </select>
+    </div>
+    <div class="row"><label>Taille blob</label>
+      <input type="range" id="bsize" min="1" max="30" value="8" step="1">
+      <span class="val" id="bsize-v">8</span>
+    </div>
+    <div class="row"><label>Rugosité</label>
+      <input type="range" id="rough" min="0" max="100" value="50" step="5">
+      <span class="val" id="rough-v">50%</span>
+    </div>
+    <div class="row"><label>Iridescence</label>
+      <input type="range" id="irid" min="0" max="100" value="55" step="5">
+      <span class="val" id="irid-v">55%</span>
+    </div>
+    <div class="row"><label>Épaisseur trait</label>
+      <input type="range" id="trailw" min="1" max="20" value="6" step="1">
+      <span class="val" id="trailw-v">6</span>
+    </div>
+    <div class="row"><label>Durée traînée</label>
+      <input type="range" id="traillife" min="2" max="60" value="20" step="1">
+      <span class="val" id="traillife-v">20s</span>
+    </div>
+    <div class="row"><label>Vitesse blob</label>
+      <input type="range" id="spd" min="1" max="100" value="30" step="1">
+      <span class="val" id="spd-v">30%</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ptitle">Espace 3D</div>
+    <div class="row"><label>Grille</label>
+      <select id="grid-sel"><option value="1">Visible</option><option value="0">Cachée</option></select>
+    </div>
+    <div class="row"><label>Trajectoires</label>
+      <select id="traj-sel"><option value="1">Visibles</option><option value="0">Cachées</option></select>
+    </div>
+    <div class="row"><label>Mode rotation</label>
+      <select id="rot-mode">
+        <option value="auto">Automatique</option>
+        <option value="pedal">Pédale</option>
+        <option value="off">Fixe</option>
+      </select>
+    </div>
+    <div class="row"><label>Vitesse rot.</label>
+      <input type="range" id="rotspd" min="0" max="100" value="15" step="1">
+      <span class="val" id="rotspd-v">15</span>
+    </div>
+    <div class="row"><label>Angle/pédale</label>
+      <input type="range" id="rotamt" min="5" max="90" value="30" step="5">
+      <span class="val" id="rotamt-v">30°</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ptitle">Notes jouées</div>
+    <div id="note-log"></div>
+  </div>
+</div>
+
+<div id="hint">Jouez sur votre clavier MIDI<br>
+  <span style="font-size:11px">A S D F G H J K &nbsp;|&nbsp; W E T Y U</span><br>
+  <span style="font-size:10px;opacity:.6">Espace=pédale &nbsp; C=effacer</span>
+</div>
+<div id="kbhint">A S D F G H J K &nbsp;|&nbsp; W E T Y U &nbsp;|&nbsp; Espace=pédale &nbsp; C=effacer</div>
+<div id="ped-ind">PÉDALE</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ══ PALETTES ══════════════════════════════════════════ */
+const PALETTES=[
+  {C:[0,55,95],Cs:[285,85,45],D:[55,90,60],Ds:[25,70,65],E:[200,80,70],F:[350,90,35],Fs:[220,75,75],G:[30,85,65],Gs:[275,70,50],A:[120,85,55],As:[320,85,40],B:[210,85,80]},
+  {C:[5,35,80],Cs:[290,30,85],D:[60,40,85],Ds:[35,35,80],E:[205,35,85],F:[355,40,75],Fs:[225,35,85],G:[35,40,85],Gs:[280,35,80],A:[125,40,80],As:[325,35,75],B:[215,40,88]},
+  {C:[15,75,65],Cs:[300,70,60],D:[70,75,70],Ds:[45,65,70],E:[215,70,75],F:[10,75,50],Fs:[235,70,80],G:[45,75,70],Gs:[290,65,65],A:[135,75,65],As:[340,70,55],B:[225,75,85]},
+  {C:[0,100,60],Cs:[285,100,55],D:[55,100,70],Ds:[25,100,75],E:[200,100,80],F:[350,100,45],Fs:[220,100,85],G:[30,100,75],Gs:[275,100,60],A:[120,100,65],As:[320,100,50],B:[210,100,90]},
+  {C:[260,70,50],Cs:[275,75,45],D:[285,65,55],Ds:[295,70,60],E:[305,65,65],F:[315,75,40],Fs:[325,70,70],G:[270,75,60],Gs:[280,65,50],A:[290,70,55],As:[300,75,45],B:[250,80,80]}
+];
+const NOTE_NAMES=['C','Cs','D','Ds','E','F','Fs','G','Gs','A','As','B'];
+const NOTE_MIN=37,NOTE_MAX=97;
+function hsl2rgb(h,s,l){s/=100;l/=100;const a=s*Math.min(l,1-l);const f=n=>{const k=(n+h/30)%12;return l-a*Math.max(-1,Math.min(k-3,9-k,1))};return[f(0),f(8),f(4)];}
+
+/* ══ PARAMS ════════════════════════════════════════════ */
+let palIdx=0,bgRGB=[0,0,0];
+let blobSize=8,roughness=0.5,iridescence=0.55;
+let trailWidth=6,trailLife=20,spdMult=0.30;
+let showGrid=true,showTraj=true;
+let rotMode='auto',rotSpd=15,rotAmt=30;
+let pedalDown=false,firstNote=false,timeX=0;
+
+/* ══ THREE.JS ══════════════════════════════════════════ */
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth,window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0,0,0);
+
+const camera=new THREE.PerspectiveCamera(55,window.innerWidth/window.innerHeight,0.1,200);
+camera.position.set(0,0,14);
+
+// Tout tourne dans ce pivot
+const pivot=new THREE.Group();
+scene.add(pivot);
+
+// Éclairage
+scene.add(new THREE.AmbientLight(0xffffff,0.3));
+const dL=new THREE.DirectionalLight(0xffffff,0.9);
+dL.position.set(6,10,12);scene.add(dL);
+const rL=new THREE.DirectionalLight(0x6688ff,0.3);
+rL.position.set(-8,-4,-10);scene.add(rL);
+
+/* ══ SHADERS ═══════════════════════════════════════════ */
+const VERT=`
+uniform float u_time;
+uniform float u_rough;
+uniform float u_vel;
+varying vec3 vN;
+varying vec3 vWP;
+
+float hash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
+float noise(vec3 p){
+  vec3 i=floor(p),f=fract(p),u=f*f*(3.-2.*f);
+  return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),u.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),u.x),u.y),
+             mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),u.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),u.x),u.y),u.z);
+}
+float fbm(vec3 p){float v=0.,a=.5;for(int i=0;i<4;i++){v+=a*noise(p);p=p*2.1+vec3(1.7,9.2,3.5);a*=.5;}return v;}
+
+void main(){
+  vec3 p=position;
+  float d=fbm(normal*3.5+u_time*.25)*u_rough*(.25+u_vel*.55);
+  p+=normal*d;
+  vN=normalize(normalMatrix*normal);
+  vWP=(modelMatrix*vec4(p,1.)).xyz;
+  gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);
+}`;
+
+const FRAG=`
+uniform float u_time;
+uniform vec3  u_color;
+uniform float u_irid;
+uniform float u_vel;
+varying vec3 vN;
+varying vec3 vWP;
+
+void main(){
+  vec3 n=normalize(vN);
+  vec3 ld=normalize(vec3(.6,.8,1.));
+  vec3 vd=normalize(cameraPosition-vWP);
+  vec3 hv=normalize(ld+vd);
+  float diff=max(0.,dot(n,ld))*.65+.35;
+  float spec=pow(max(0.,dot(n,hv)),28.)*(.35+u_vel*.55);
+  float fresnel=pow(1.-max(0.,dot(n,vd)),2.2);
+  vec3 ird=.5+.5*cos(vec3(0,2.094,4.188)+dot(n,ld)*5.-u_time*.4);
+  vec3 col=u_color*diff+vec3(spec);
+  col+=ird*u_irid*fresnel*1.8;
+  col+=u_color*fresnel*.35;
+  gl_FragColor=vec4(clamp(col,0.,1.),1.);
+}`;
+
+/* ══ GRILLE ════════════════════════════════════════════ */
+const gridGroup=new THREE.Group();
+pivot.add(gridGroup);
+
+function buildGrid(){
+  while(gridGroup.children.length)gridGroup.remove(gridGroup.children[0]);
+  const sz=5,N=8;
+  const mFaint=new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:0.10,depthWrite:false});
+  const mBright=new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:0.22,depthWrite:false});
+  for(let i=0;i<=N;i++){
+    const t=(i/N)*2*sz-sz;
+    const pts=[
+      [new THREE.Vector3(-sz,t,-sz),new THREE.Vector3(sz,t,-sz)],
+      [new THREE.Vector3(-sz,t, sz),new THREE.Vector3(sz,t, sz)],
+      [new THREE.Vector3(t,-sz,-sz),new THREE.Vector3(t,sz,-sz)],
+      [new THREE.Vector3(t,-sz, sz),new THREE.Vector3(t,sz, sz)],
+      [new THREE.Vector3(-sz,-sz,t),new THREE.Vector3(sz,-sz,t)],
+      [new THREE.Vector3(-sz, sz,t),new THREE.Vector3(sz, sz,t)],
+    ];
+    pts.forEach(([a,b])=>{
+      const g=new THREE.BufferGeometry().setFromPoints([a,b]);
+      gridGroup.add(new THREE.Line(g,mFaint));
+    });
+  }
+  // Arêtes
+  [[-sz,-sz],[-sz,sz],[sz,-sz],[sz,sz]].forEach(([x,y])=>{
+    const g=new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(x,y,-sz),new THREE.Vector3(x,y,sz)
+    ]);
+    gridGroup.add(new THREE.Line(g,mBright));
+  });
+  gridGroup.visible=showGrid;
+}
+buildGrid();
+
+/* ══ NOTE → POSITION 3D ════════════════════════════════ */
+function noteToPos3D(note,vel){
+  const y=((note-NOTE_MIN)/(NOTE_MAX-NOTE_MIN))*7-3.5;
+  const velN=(vel-1)/126;
+  const z=(velN-.5)*5;
+  const x=Math.sin(timeX*0.08)*3.8;
+  return new THREE.Vector3(x,y,z);
+}
+
+/* Direction V2 corrigée en 3D */
+function velToDir3D(vel,isEven){
+  const VL=50,VH=110,VT=70;
+  let dy,dx;
+  if(vel>=VH){dy=1;dx=0;}
+  else if(vel<=VL){dy=-1;dx=0;}
+  else if(vel>=VT){dy=0.7;dx=isEven?0.7:-0.7;}
+  else{dy=-0.7;dx=isEven?0.7:-0.7;}
+  // Courbure V2
+  const CO=35;
+  let omega=0;
+  if(vel>CO&&vel>VL&&vel<VH){
+    const k=(vel-CO)/(127-CO);
+    const od=1.2+(1.0-1.2)*Math.max(0,Math.min(1,k));
+    omega=od*(vel>=VT?1:-1)*0.02;
+  }
+  return{dir:new THREE.Vector3(dx,dy,0).normalize(),omega};
+}
+
+/* ══ BLOB NOTE ══════════════════════════════════════════
+   Chaque note active = un blob (sphère déformée)
+   + une traînée (ligne 3D de points déposés à chaque frame)
+══════════════════════════════════════════════════════ */
+const activeBlobs=new Map();
+const allTrails=[];  // {line, mat, bornAt}
+
+function makeBlob(note,vel){
+  const pal=PALETTES[palIdx];
+  const name=NOTE_NAMES[note%12];
+  const hsl=pal[name]||[0,80,60];
+  const rgb=hsl2rgb(hsl[0],hsl[1],Math.min(93,hsl[2]+Math.floor(note/12)*3));
+  const velN=(vel-1)/126;
+  const r=(blobSize*0.025)*(0.4+velN*0.8);
+
+  const geo=new THREE.SphereGeometry(r,20,16);
+  const mat=new THREE.ShaderMaterial({
+    vertexShader:VERT,fragmentShader:FRAG,
+    uniforms:{
+      u_time:{value:0},
+      u_color:{value:new THREE.Color(rgb[0],rgb[1],rgb[2])},
+      u_rough:{value:roughness},
+      u_irid:{value:iridescence},
+      u_vel:{value:velN}
+    }
+  });
+  const mesh=new THREE.Mesh(geo,mat);
+  const pos=noteToPos3D(note,vel);
+  mesh.position.copy(pos);
+  pivot.add(mesh);
+
+  const{dir,omega}=velToDir3D(vel,note%2===0);
+
+  // Traînée : liste de positions déposées
+  const trailPositions=[pos.clone()];
+  const trailGeo=new THREE.BufferGeometry();
+  const trailMat=new THREE.LineBasicMaterial({
+    color:new THREE.Color(rgb[0],rgb[1],rgb[2]),
+    transparent:true,opacity:0.8,linewidth:1,depthWrite:false
+  });
+  const trailLine=new THREE.Line(trailGeo,trailMat);
+  trailLine.visible=showTraj;
+  pivot.add(trailLine);
+  allTrails.push({line:trailLine,mat:trailMat,bornAt:0});
+
+  return{
+    mesh,mat,rgb,vel:velN,velRaw:vel,
+    pos:pos.clone(),dir:dir.clone(),omega,
+    theta:0,alive:true,dying:false,
+    trailPositions,trailLine,trailMat,
+    lastTrailPos:pos.clone(),trailAge:0
+  };
+}
+
+function spawnNote(note,vel){
+  // Si une note du même numéro est déjà active, on la tue proprement
+  if(activeBlobs.has(note)) killBlob(note,true);
+
+  const blob=makeBlob(note,vel);
+  activeBlobs.set(note,blob);
+  timeX+=0.7+(vel/127)*1.3;
+  if(!firstNote){firstNote=true;document.getElementById('hint').classList.add('gone');}
+
+  const{rgb}=blob;
+  logNote(note,vel,rgb);
+}
+
+function killBlob(note,immediate=false){
+  const b=activeBlobs.get(note);
+  if(!b)return;
+  if(immediate){
+    removeBlobMesh(b);
+    activeBlobs.delete(note);
+  } else {
+    b.alive=false;b.dying=true;
+  }
+}
+
+function removeBlobMesh(b){
+  pivot.remove(b.mesh);
+  b.mesh.geometry.dispose();
+  b.mesh.material.dispose();
+}
+
+function releaseNote(note){
+  killBlob(note,false);
+}
+
+function onPedalChange(down){
+  const was=pedalDown;pedalDown=down;
+  document.getElementById('ped-ind').classList.toggle('on',down);
+  if(!down&&was){
+    if(rotMode==='pedal') pivot.rotation.y+=rotAmt*Math.PI/180;
+    [...activeBlobs.keys()].forEach(n=>releaseNote(n));
+  }
+}
+
+function clearAll(){
+  for(const[n] of activeBlobs) killBlob(n,true);
+  activeBlobs.clear();
+  for(const t of allTrails){
+    pivot.remove(t.line);
+    t.line.geometry.dispose();t.line.material.dispose();
+  }
+  allTrails.length=0;
+}
+
+/* ══ UPDATE TRAÎNÉE ════════════════════════════════════ */
+function updateTrail(b,dt){
+  // Déposer un point toutes les ~30ms si le blob a bougé
+  const moved=b.pos.distanceTo(b.lastTrailPos);
+  if(moved>0.04){
+    b.trailPositions.push(b.pos.clone());
+    b.lastTrailPos.copy(b.pos);
+    // Reconstruire la géométrie de la ligne
+    const pts=b.trailPositions;
+    b.trailLine.geometry.setFromPoints(pts);
+    b.trailLine.geometry.computeBoundingSphere();
+  }
+}
+
+/* ══ ANIMATION ══════════════════════════════════════════ */
+const clock=new THREE.Clock();
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=Math.min(0.05,clock.getDelta());
+  const elapsed=clock.getElapsedTime();
+
+  // Rotation pivot
+  if(rotMode==='auto') pivot.rotation.y+=rotSpd*0.0002*dt*60;
+  else{
+    // Mode pédale : lerp vers targetAngle
+  }
+
+  // Update blobs
+  for(const[note,b] of activeBlobs){
+    b.mat.uniforms.u_time.value=elapsed;
+    b.mat.uniforms.u_rough.value=roughness;
+    b.mat.uniforms.u_irid.value=iridescence;
+
+    if(b.dying){
+      // Rétrécissement rapide
+      const s=Math.max(0,b.mesh.scale.x-dt*3);
+      b.mesh.scale.setScalar(s);
+      if(s<=0){removeBlobMesh(b);activeBlobs.delete(note);}
+      continue;
+    }
+
+    if(b.alive){
+      // Mouvement avec direction + courbure
+      const sp=(0.002+b.vel*b.vel*0.08)*spdMult*dt*60;
+      b.theta+=b.omega;
+      // Rotation de la direction selon omega
+      const cosT=Math.cos(b.theta),sinT=Math.sin(b.theta);
+      const dx=b.dir.x*cosT-b.dir.y*sinT;
+      const dy=b.dir.x*sinT+b.dir.y*cosT;
+      b.dir.set(dx,dy,b.dir.z).normalize();
+
+      b.pos.x+=b.dir.x*sp;
+      b.pos.y+=b.dir.y*sp;
+      b.mesh.position.copy(b.pos);
+
+      // Pulsation légère
+      const pulse=1+Math.sin(elapsed*2.5+note*0.3)*0.03;
+      b.mesh.scale.setScalar(pulse);
+
+      // Dépôt de traînée
+      updateTrail(b,dt);
+    }
+  }
+
+  // Fade des traînées dans le temps
+  const lifeMs=trailLife*1000;
+  for(const t of allTrails){
+    t.bornAt+=dt*1000;
+    // Les traînées d'anciens blobs s'effacent selon trailLife
+  }
+  // Fade général : opacité des traînées de blobs morts
+  for(const[,b] of activeBlobs){
+    if(!b.alive&&!b.dying){
+      b.trailAge+=dt;
+      const alpha=Math.max(0,1-b.trailAge/trailLife);
+      b.trailMat.opacity=alpha*0.8;
+    }
+  }
+  // Nettoyer les traînées trop vieilles
+  // (traînées des blobs déjà supprimés — gérées par allTrails)
+
+  renderer.render(scene,camera);
+}
+
+/* ══ LOG ═══════════════════════════════════════════════ */
+const logEl=document.getElementById('note-log');
+function logNote(note,vel,rgb){
+  const name=NOTE_NAMES[note%12],oct=Math.floor(note/12)-1;
+  const d=document.createElement('div');d.className='nrow';
+  d.innerHTML=`<div class="nbadge" style="background:rgb(${Math.round(rgb[0]*255)},${Math.round(rgb[1]*255)},${Math.round(rgb[2]*255)})"></div><span style="color:rgba(255,255,255,.72);min-width:26px">${name}${oct}</span><span style="color:rgba(255,255,255,.32)">vel ${vel}</span>`;
+  logEl.prepend(d);if(logEl.children.length>6)logEl.removeChild(logEl.lastChild);
+}
+
+/* ══ MIDI ══════════════════════════════════════════════ */
+const midiDot=document.getElementById('midi-dot');
+const midiLbl=document.getElementById('midi-label');
+function onMidi(e){
+  const st=e.data[0]&0xF0,note=e.data[1],vel=e.data[2];
+  if(st===0x90&&vel>0&&note>=NOTE_MIN&&note<=NOTE_MAX)spawnNote(note,vel);
+  if((st===0x80||(st===0x90&&vel===0))&&note>=NOTE_MIN&&note<=NOTE_MAX)releaseNote(note);
+  if(st===0xB0&&note===64)onPedalChange(vel>=64);
+}
+if(navigator.requestMIDIAccess){
+  navigator.requestMIDIAccess({sysex:false}).then(midi=>{
+    midiDot.classList.add('on');midiLbl.textContent='MIDI connecté';
+    const conn=()=>{for(const i of midi.inputs.values())i.onmidimessage=onMidi;};
+    conn();midi.onstatechange=conn;
+  }).catch(()=>{midiDot.classList.add('err');midiLbl.textContent='Accès MIDI refusé';});
+}else{midiDot.classList.add('err');midiLbl.textContent='WebMIDI non supporté (Chrome requis)';}
+
+/* ══ CLAVIER ═══════════════════════════════════════════ */
+const KEYMAP={a:60,w:61,s:62,e:63,d:64,f:65,t:66,g:67,y:68,h:69,u:70,j:71,k:72,l:73};
+const held=new Set();
+window.addEventListener('keydown',e=>{
+  if(e.repeat)return;
+  if(e.key===' '){e.preventDefault();onPedalChange(true);return;}
+  if(e.key==='c'||e.key==='C'){clearAll();return;}
+  const n=KEYMAP[e.key.toLowerCase()];
+  if(n&&!held.has(e.key)){held.add(e.key);spawnNote(n,Math.floor(45+Math.random()*75));}
+});
+window.addEventListener('keyup',e=>{
+  if(e.key===' '){onPedalChange(false);return;}
+  const n=KEYMAP[e.key.toLowerCase()];
+  if(n){held.delete(e.key);releaseNote(n);}
+});
+
+/* ══ CONTRÔLES ══════════════════════════════════════════ */
+function bind(id,cb){document.getElementById(id).addEventListener('input',cb);}
+function bindC(id,cb){document.getElementById(id).addEventListener('change',cb);}
+bind('bsize',e=>{blobSize=+e.target.value;document.getElementById('bsize-v').textContent=e.target.value;});
+bind('rough',e=>{roughness=+e.target.value/100;document.getElementById('rough-v').textContent=e.target.value+'%';});
+bind('irid',e=>{iridescence=+e.target.value/100;document.getElementById('irid-v').textContent=e.target.value+'%';});
+bind('trailw',e=>{trailWidth=+e.target.value;document.getElementById('trailw-v').textContent=e.target.value;});
+bind('traillife',e=>{trailLife=+e.target.value;document.getElementById('traillife-v').textContent=e.target.value+'s';});
+bind('spd',e=>{spdMult=+e.target.value/100;document.getElementById('spd-v').textContent=e.target.value+'%';});
+bind('rotspd',e=>{rotSpd=+e.target.value;document.getElementById('rotspd-v').textContent=e.target.value;});
+bind('rotamt',e=>{rotAmt=+e.target.value;document.getElementById('rotamt-v').textContent=e.target.value+'°';});
+bindC('pal-sel',e=>{palIdx=+e.target.value;});
+bindC('bg-sel',e=>{
+  bgRGB=e.target.value.split(',').map(Number);
+  scene.background=new THREE.Color(bgRGB[0],bgRGB[1],bgRGB[2]);
+});
+bindC('grid-sel',e=>{showGrid=e.target.value==='1';gridGroup.visible=showGrid;});
+bindC('traj-sel',e=>{
+  showTraj=e.target.value==='1';
+  for(const[,b] of activeBlobs)b.trailLine.visible=showTraj;
+});
+bindC('rot-mode',e=>{rotMode=e.target.value;});
+
+/* ══ RESIZE ════════════════════════════════════════════ */
+window.addEventListener('resize',()=>{
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+});
+
+animate();
+</script>
+</body>
+</html>
