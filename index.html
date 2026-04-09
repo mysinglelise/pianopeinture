@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Piano Peinture V6 – Three.js</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;font-family:'Courier New',monospace}
+canvas{display:block}
+#ui{position:fixed;top:14px;left:14px;z-index:20;display:flex;flex-direction:column;gap:7px;pointer-events:none}
+.panel{background:rgba(0,0,0,0.68);border:0.5px solid rgba(255,255,255,0.13);border-radius:8px;padding:9px 13px;pointer-events:all}
+.ptitle{font-size:9px;letter-spacing:.14em;color:rgba(255,255,255,.28);text-transform:uppercase;margin-bottom:7px}
+.row{display:flex;align-items:center;gap:9px;margin:4px 0}
+label{font-size:11px;color:rgba(255,255,255,.38);min-width:82px}
+select{background:rgba(255,255,255,.06);border:0.5px solid rgba(255,255,255,.16);border-radius:4px;color:rgba(255,255,255,.82);padding:3px 6px;font-size:11px;font-family:inherit;cursor:pointer;outline:none}
+input[type=range]{-webkit-appearance:none;width:88px;height:3px;border-radius:2px;background:rgba(255,255,255,.14);outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:#9b96d4;cursor:pointer}
+.val{font-size:11px;color:rgba(255,255,255,.38);min-width:32px}
+#midi-dot{width:8px;height:8px;border-radius:50%;background:#333;flex-shrink:0;transition:background .4s}
+#midi-dot.on{background:#4dff91;box-shadow:0 0 5px #4dff91}
+#midi-dot.err{background:#ff5555}
+#note-log{display:flex;flex-direction:column;gap:3px;max-height:80px;overflow:hidden}
+.nrow{display:flex;align-items:center;gap:7px;font-size:10px}
+.nbadge{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+#hint{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:rgba(255,255,255,.2);font-size:13px;line-height:2.2;pointer-events:none;transition:opacity 1.5s;z-index:5}
+#hint.gone{opacity:0}
+#kbhint{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);font-size:10px;color:rgba(255,255,255,.13);pointer-events:none;z-index:5}
+#ped-ind{position:fixed;bottom:10px;right:14px;font-size:10px;letter-spacing:.1em;pointer-events:none;color:rgba(255,255,255,.15);z-index:5}
+#ped-ind.on{color:#9b96d4}
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <div class="panel">
+    <div class="row" style="gap:8px">
+      <div id="midi-dot"></div>
+      <span id="midi-label" style="font-size:11px;color:rgba(255,255,255,.55)">Connexion MIDI…</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ptitle">Peinture</div>
+    <div class="row"><label>Palette</label>
+      <select id="pal-sel">
+        <option value="0">0 – Saturée</option><option value="1">1 – Pastel</option>
+        <option value="2">2 – Chaude</option><option value="3">3 – Vive</option>
+        <option value="4">4 – Bleu-violet</option>
+      </select>
+    </div>
+    <div class="row"><label>Fond</label>
+      <select id="bg-sel">
+        <option value="0x000000">Noir</option>
+        <option value="0x060a24">Bleu nuit</option>
+        <option value="0x12061c">Violet sombre</option>
+        <option value="0x0a0a0a">Gris sombre</option>
+        <option value="0xf5f0e8">Blanc chaud</option>
+      </select>
+    </div>
+    <div class="row"><label>Taille blob</label>
+      <input type="range" id="bsize" min="1" max="30" value="8" step="1">
+      <span class="val" id="bsize-v">8</span>
+    </div>
+    <div class="row"><label>Rugosité</label>
+      <input type="range" id="rough" min="0" max="100" value="50" step="5">
+      <span class="val" id="rough-v">50%</span>
+    </div>
+    <div class="row"><label>Iridescence</label>
+      <input type="range" id="irid" min="0" max="100" value="55" step="5">
+      <span class="val" id="irid-v">55%</span>
+    </div>
+    <div class="row"><label>Fade traînées</label>
+      <input type="range" id="fade" min="0" max="100" value="20" step="5">
+      <span class="val" id="fade-v">20%</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ptitle">Espace 3D</div>
+    <div class="row"><label>Grille</label>
+      <select id="grid-sel"><option value="1">Visible</option><option value="0">Cachée</option></select>
+    </div>
+    <div class="row"><label>Tubes traj.</label>
+      <select id="traj-sel"><option value="1">Visibles</option><option value="0">Cachés</option></select>
+    </div>
+    <div class="row"><label>Mode rotation</label>
+      <select id="rot-mode">
+        <option value="auto">Automatique</option>
+        <option value="pedal">Pédale</option>
+        <option value="off">Fixe</option>
+      </select>
+    </div>
+    <div class="row"><label>Vitesse rot.</label>
+      <input type="range" id="rotspd" min="1" max="100" value="20" step="1">
+      <span class="val" id="rotspd-v">20</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ptitle">Notes jouées</div>
+    <div id="note-log"></div>
+  </div>
+</div>
+
+<div id="hint">Jouez sur votre clavier MIDI<br>
+  <span style="font-size:11px">A S D F G H J K &nbsp;|&nbsp; W E T Y U</span><br>
+  <span style="font-size:10px;opacity:.6">Espace=pédale &nbsp; C=effacer</span>
+</div>
+<div id="kbhint">A S D F G H J K &nbsp;|&nbsp; W E T Y U &nbsp;|&nbsp; Espace=pédale &nbsp; C=effacer</div>
+<div id="ped-ind">PÉDALE</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ══ PALETTES ══════════════════════════════════════════ */
+const PALETTES=[
+  {C:[0,55,95],Cs:[285,85,45],D:[55,90,60],Ds:[25,70,65],E:[200,80,70],F:[350,90,35],Fs:[220,75,75],G:[30,85,65],Gs:[275,70,50],A:[120,85,55],As:[320,85,40],B:[210,85,80]},
+  {C:[5,35,80],Cs:[290,30,85],D:[60,40,85],Ds:[35,35,80],E:[205,35,85],F:[355,40,75],Fs:[225,35,85],G:[35,40,85],Gs:[280,35,80],A:[125,40,80],As:[325,35,75],B:[215,40,88]},
+  {C:[15,75,65],Cs:[300,70,60],D:[70,75,70],Ds:[45,65,70],E:[215,70,75],F:[10,75,50],Fs:[235,70,80],G:[45,75,70],Gs:[290,65,65],A:[135,75,65],As:[340,70,55],B:[225,75,85]},
+  {C:[0,100,60],Cs:[285,100,55],D:[55,100,70],Ds:[25,100,75],E:[200,100,80],F:[350,100,45],Fs:[220,100,85],G:[30,100,75],Gs:[275,100,60],A:[120,100,65],As:[320,100,50],B:[210,100,90]},
+  {C:[260,70,50],Cs:[275,75,45],D:[285,65,55],Ds:[295,70,60],E:[305,65,65],F:[315,75,40],Fs:[325,70,70],G:[270,75,60],Gs:[280,65,50],A:[290,70,55],As:[300,75,45],B:[250,80,80]}
+];
+const NOTE_NAMES=['C','Cs','D','Ds','E','F','Fs','G','Gs','A','As','B'];
+const NOTE_MIN=37,NOTE_MAX=97;
+
+function hsl2rgb(h,s,l){
+  s/=100;l/=100;const a=s*Math.min(l,1-l);
+  const f=n=>{const k=(n+h/30)%12;return l-a*Math.max(-1,Math.min(k-3,9-k,1))};
+  return[f(0),f(8),f(4)];
+}
+function hsl2hex(h,s,l){
+  const[r,g,b]=hsl2rgb(h,s,l);
+  return(Math.round(r*255)<<16)|(Math.round(g*255)<<8)|Math.round(b*255);
+}
+
+/* ══ PARAMS ════════════════════════════════════════════ */
+let palIdx=0,bgHex=0x000000;
+let blobSize=8,roughness=0.50,iridescence=0.55,fadeRate=0.20;
+let showGrid=true,showTraj=true;
+let rotMode='auto',rotSpd=20;
+let pedalDown=false,firstNote=false,timeX=0;
+
+/* ══ THREE.JS SETUP ════════════════════════════════════ */
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth,window.innerHeight);
+renderer.shadowMap.enabled=false;
+document.body.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(bgHex);
+scene.fog=new THREE.Fog(bgHex,18,35);
+
+/* Caméra orbitale */
+const camera=new THREE.PerspectiveCamera(60,window.innerWidth/window.innerHeight,0.1,100);
+camera.position.set(0,0,12);
+
+/* Pivot pour la rotation de scène */
+const pivot=new THREE.Group();
+scene.add(pivot);
+
+/* ══ SHADER MATERIAL — BLOB LIQUIDE ════════════════════
+   Chaque note = une sphère avec ce shader.
+   Le vertex shader déforme la sphère avec du FBM (rugosité).
+   Le fragment shader calcule éclairage + iridescence (Liquid toy style).
+══════════════════════════════════════════════════════ */
+const VERT_BLOB=`
+uniform float u_time;
+uniform float u_rough;
+uniform float u_vel;
+varying vec3 v_normal;
+varying vec3 v_pos;
+varying vec3 v_worldPos;
+
+float hash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
+float noise(vec3 p){
+  vec3 i=floor(p),f=fract(p),u=f*f*(3.-2.*f);
+  return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),u.x),
+                 mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),u.x),u.y),
+             mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),u.x),
+                 mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),u.x),u.y),u.z);
+}
+float fbm(vec3 p){
+  float v=0.,a=.5;
+  for(int i=0;i<4;i++){v+=a*noise(p);p=p*2.1+vec3(1.7,9.2,3.5);a*=.5;}
+  return v;
+}
+
+void main(){
+  vec3 p=position;
+  // Déformation radiale par FBM (rugosité de surface)
+  float disp=fbm(normal*3.+u_time*.3)*u_rough*(0.3+u_vel*0.5);
+  p+=normal*disp;
+  v_normal=normalize(normalMatrix*normal);
+  v_pos=p;
+  vec4 wp=modelMatrix*vec4(p,1.);
+  v_worldPos=wp.xyz;
+  gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);
+}`;
+
+const FRAG_BLOB=`
+uniform float u_time;
+uniform vec3  u_color;
+uniform float u_irid;
+uniform float u_vel;
+varying vec3 v_normal;
+varying vec3 v_pos;
+varying vec3 v_worldPos;
+
+void main(){
+  vec3 nrm=normalize(v_normal);
+  // Lumière principale haut-droite
+  vec3 ld=normalize(vec3(.6,.8,1.));
+  float diff=max(0.,dot(nrm,ld))*.7+.3;
+
+  // Spéculaire
+  vec3 vd=normalize(cameraPosition-v_worldPos);
+  vec3 hv=normalize(ld+vd);
+  float spec=pow(max(0.,dot(nrm,hv)),32.)*(.4+u_vel*.6);
+
+  // Iridescence (arc-en-ciel sur les bords — Liquid toy style)
+  float fresnel=pow(1.-max(0.,dot(nrm,vd)),2.5);
+  vec3 iridColor=.5+.5*cos(vec3(0,2.094,4.188)+dot(nrm,ld)*4.-u_time*.5);
+  vec3 col=u_color*diff;
+  col+=vec3(spec);
+  col+=iridColor*u_irid*fresnel*1.5;
+  // Halo de bord lumineux
+  col+=u_color*fresnel*0.4;
+  gl_FragColor=vec4(clamp(col,0.,1.),1.);
+}`;
+
+/* ══ SHADER MATERIAL — GRILLE ══════════════════════════ */
+const gridMat=new THREE.LineBasicMaterial({
+  color:0xffffff,transparent:true,opacity:0.12,depthWrite:false
+});
+
+function makeGrid(){
+  const g=new THREE.Group();
+  const N=8;
+  for(let i=0;i<=N;i++){
+    const t=(i/N)*2-1;
+    // Horizontales Z=const
+    [[new THREE.Vector3(-1,t,-1),new THREE.Vector3(1,t,-1)],
+     [new THREE.Vector3(-1,t,1),new THREE.Vector3(1,t,1)],
+     [new THREE.Vector3(-1,-1,t),new THREE.Vector3(1,-1,t)],
+     [new THREE.Vector3(-1,1,t),new THREE.Vector3(1,1,t)],
+     [new THREE.Vector3(t,-1,-1),new THREE.Vector3(t,1,-1)],
+     [new THREE.Vector3(t,-1,1),new THREE.Vector3(t,1,1)],
+    ].forEach(([a,b])=>{
+      const geo=new THREE.BufferGeometry().setFromPoints([a.multiplyScalar(5),b.multiplyScalar(5)]);
+      g.add(new THREE.Line(geo,gridMat));
+    });
+  }
+  // Arêtes
+  const corners=[[-1,-1],[1,-1],[-1,1],[1,1]];
+  corners.forEach(([x,y])=>{
+    const geo=new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(x*5,y*5,-5),new THREE.Vector3(x*5,y*5,5)
+    ]);
+    const mat=new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:0.25,depthWrite:false});
+    g.add(new THREE.Line(geo,mat));
+  });
+  return g;
+}
+
+const gridGroup=makeGrid();
+pivot.add(gridGroup);
+
+/* ══ NOTE → POSITION 3D ════════════════════════════════
+   X : avance avec le temps (cyclique)
+   Y : hauteur de la note (grave bas, aigu haut)
+   Z : vélocité (forte=devant, douce=fond)
+══════════════════════════════════════════════════════ */
+function noteToPos3D(note,vel){
+  const y=((note-NOTE_MIN)/(NOTE_MAX-NOTE_MIN))*8-4;
+  const velN=(vel-1)/126;
+  const z=(velN-.5)*6;    // fort=devant(+3), doux=fond(-3)
+  const x=Math.sin(timeX*0.08)*4;
+  return new THREE.Vector3(x,y,z);
+}
+
+/* Direction initiale du blob (V2 corrigée) */
+function velToDir3D(vel,isEven){
+  const VL=50,VH=110,VT=70;
+  let dy,dx;
+  if(vel>=VH){dy=1;dx=0;}
+  else if(vel<=VL){dy=-1;dx=0;}
+  else if(vel>=VT){dy=0.7;dx=isEven?0.7:-0.7;}
+  else{dy=-0.7;dx=isEven?0.7:-0.7;}
+  return new THREE.Vector3(dx,dy,0).normalize();
+}
+
+/* ══ BLOBS ET TRAJECTOIRES ═════════════════════════════ */
+const activeBlobs=new Map();   // note → {mesh, vel, dir, age, pos}
+const trajectoryPoints=[];      // [{pos, color, age, maxAge}]
+const trajectoryLines=[];       // THREE.Line objects
+const MAX_TRAJ=150;
+
+function spawnNote(note,vel){
+  const pal=PALETTES[palIdx];
+  const name=NOTE_NAMES[note%12];
+  const hsl=pal[name]||[0,80,60];
+  const lBoost=Math.floor(note/12)*3;
+  const hexColor=hsl2hex(hsl[0],hsl[1],Math.min(93,hsl[2]+lBoost));
+  const rgbColor=hsl2rgb(hsl[0],hsl[1],Math.min(93,hsl[2]+lBoost));
+  const velN=(vel-1)/126;
+  const pos=noteToPos3D(note,vel);
+  const dir=velToDir3D(vel,note%2===0);
+
+  /* Taille du blob selon vélocité */
+  const r=(blobSize*0.03)*(0.4+velN*0.8);
+
+  /* Géométrie sphère déformée */
+  const geo=new THREE.SphereGeometry(r,24,18);
+
+  /* Shader material avec uniforms */
+  const mat=new THREE.ShaderMaterial({
+    vertexShader:VERT_BLOB,
+    fragmentShader:FRAG_BLOB,
+    uniforms:{
+      u_time:{value:0},
+      u_color:{value:new THREE.Color(hexColor)},
+      u_rough:{value:roughness},
+      u_irid:{value:iridescence},
+      u_vel:{value:velN}
+    }
+  });
+
+  const mesh=new THREE.Mesh(geo,mat);
+  mesh.position.copy(pos);
+  pivot.add(mesh);
+
+  activeBlobs.set(note,{mesh,vel:velN,dir,pos:pos.clone(),age:0,alive:true,rgbColor});
+
+  /* Point de trajectoire */
+  trajectoryPoints.push({pos:pos.clone(),color:rgbColor,age:0,maxAge:9000});
+  if(trajectoryPoints.length>MAX_TRAJ)trajectoryPoints.shift();
+
+  /* Tube de trajectoire entre les deux derniers points */
+  if(trajectoryPoints.length>1&&showTraj){
+    addTrajSegment(
+      trajectoryPoints[trajectoryPoints.length-2].pos,
+      pos,
+      rgbColor
+    );
+  }
+
+  timeX+=0.7+(vel/127)*1.3;
+  if(!firstNote){firstNote=true;document.getElementById('hint').classList.add('gone');}
+  logNote(note,vel,rgbColor);
+}
+
+function addTrajSegment(a,b,color){
+  const geo=new THREE.BufferGeometry().setFromPoints([a,b]);
+  const mat=new THREE.LineBasicMaterial({
+    color:new THREE.Color(color[0],color[1],color[2]),
+    transparent:true,opacity:0.7,depthWrite:false
+  });
+  const line=new THREE.Line(geo,mat);
+  pivot.add(line);
+  trajectoryLines.push({line,age:0,maxAge:9000});
+}
+
+function releaseNote(note){
+  const b=activeBlobs.get(note);
+  if(b){b.alive=false;}
+}
+
+function onPedalChange(down){
+  const was=pedalDown;pedalDown=down;
+  document.getElementById('ped-ind').classList.toggle('on',down);
+  if(!down&&was){
+    if(rotMode==='pedal') pivot.rotation.y+=rotSpd*0.04;
+    [...activeBlobs.keys()].forEach(n=>releaseNote(n));
+  }
+}
+
+function clearAll(){
+  for(const[,b] of activeBlobs){pivot.remove(b.mesh);b.mesh.geometry.dispose();b.mesh.material.dispose();}
+  activeBlobs.clear();
+  for(const{line} of trajectoryLines){pivot.remove(line);line.geometry.dispose();line.material.dispose();}
+  trajectoryLines.length=0;
+  trajectoryPoints.length=0;
+}
+
+/* ══ ANIMATION ══════════════════════════════════════════ */
+const clock=new THREE.Clock();
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=clock.getDelta();
+  const elapsed=clock.getElapsedTime();
+
+  /* Rotation de la scène */
+  if(rotMode==='auto') pivot.rotation.y+=rotSpd*0.0003*dt*60;
+
+  /* Mise à jour des blobs actifs */
+  for(const[note,b] of activeBlobs){
+    b.age+=dt;
+    b.mesh.material.uniforms.u_time.value=elapsed;
+    b.mesh.material.uniforms.u_rough.value=roughness;
+    b.mesh.material.uniforms.u_irid.value=iridescence;
+
+    if(b.alive){
+      /* Mouvement selon la direction + courbure V2 */
+      const speed=(0.003+b.vel*b.vel*0.12)*dt*60;
+      b.pos.addScaledVector(b.dir,speed);
+      b.mesh.position.copy(b.pos);
+
+      /* Légère pulsation du blob */
+      const pulse=1+Math.sin(elapsed*3+note)*0.04*b.vel;
+      b.mesh.scale.setScalar(pulse);
+    } else {
+      /* Fondu + shrink sur note-off */
+      const s=Math.max(0,b.mesh.scale.x-dt*1.5);
+      b.mesh.scale.setScalar(s);
+      if(s<=0){
+        pivot.remove(b.mesh);
+        b.mesh.geometry.dispose();
+        b.mesh.material.dispose();
+        activeBlobs.delete(note);
+      }
+    }
+  }
+
+  /* Fade des trajectoires */
+  const fd=fadeRate*dt*0.5;
+  for(let i=trajectoryLines.length-1;i>=0;i--){
+    const t=trajectoryLines[i];
+    t.age+=dt*60;
+    const alpha=Math.max(0,(1-t.age/t.maxAge)*0.7);
+    t.line.material.opacity=alpha;
+    if(alpha<=0){
+      pivot.remove(t.line);
+      t.line.geometry.dispose();t.line.material.dispose();
+      trajectoryLines.splice(i,1);
+    }
+  }
+
+  /* Éclairage de scène */
+  renderer.render(scene,camera);
+}
+
+/* Éclairage Three.js */
+const ambLight=new THREE.AmbientLight(0xffffff,0.25);
+scene.add(ambLight);
+const dirLight=new THREE.DirectionalLight(0xffffff,0.8);
+dirLight.position.set(5,8,10);
+scene.add(dirLight);
+const rimLight=new THREE.DirectionalLight(0x8888ff,0.3);
+rimLight.position.set(-5,-3,-8);
+scene.add(rimLight);
+
+/* ══ LOG ═══════════════════════════════════════════════ */
+const logEl=document.getElementById('note-log');
+function logNote(note,vel,rgb){
+  const name=NOTE_NAMES[note%12],oct=Math.floor(note/12)-1;
+  const d=document.createElement('div');d.className='nrow';
+  d.innerHTML=`<div class="nbadge" style="background:rgb(${Math.round(rgb[0]*255)},${Math.round(rgb[1]*255)},${Math.round(rgb[2]*255)})"></div><span style="color:rgba(255,255,255,.72);min-width:26px">${name}${oct}</span><span style="color:rgba(255,255,255,.32)">vel ${vel}</span>`;
+  logEl.prepend(d);if(logEl.children.length>6)logEl.removeChild(logEl.lastChild);
+}
+
+/* ══ MIDI ══════════════════════════════════════════════ */
+const midiDot=document.getElementById('midi-dot');
+const midiLbl=document.getElementById('midi-label');
+function onMidi(e){
+  const st=e.data[0]&0xF0,note=e.data[1],vel=e.data[2];
+  if(st===0x90&&vel>0&&note>=NOTE_MIN&&note<=NOTE_MAX)spawnNote(note,vel);
+  if((st===0x80||(st===0x90&&vel===0))&&note>=NOTE_MIN&&note<=NOTE_MAX)releaseNote(note);
+  if(st===0xB0&&note===64)onPedalChange(vel>=64);
+}
+if(navigator.requestMIDIAccess){
+  navigator.requestMIDIAccess({sysex:false}).then(midi=>{
+    midiDot.classList.add('on');midiLbl.textContent='MIDI connecté';
+    const conn=()=>{for(const i of midi.inputs.values())i.onmidimessage=onMidi;};
+    conn();midi.onstatechange=conn;
+  }).catch(()=>{midiDot.classList.add('err');midiLbl.textContent='Accès MIDI refusé';});
+}else{midiDot.classList.add('err');midiLbl.textContent='WebMIDI non supporté (Chrome requis)';}
+
+/* ══ CLAVIER ═══════════════════════════════════════════ */
+const KEYMAP={a:60,w:61,s:62,e:63,d:64,f:65,t:66,g:67,y:68,h:69,u:70,j:71,k:72,l:73};
+const held=new Set();
+window.addEventListener('keydown',e=>{
+  if(e.repeat)return;
+  if(e.key===' '){e.preventDefault();onPedalChange(true);return;}
+  if(e.key==='c'||e.key==='C'){clearAll();return;}
+  const n=KEYMAP[e.key.toLowerCase()];
+  if(n&&!held.has(e.key)){held.add(e.key);spawnNote(n,Math.floor(45+Math.random()*75));}
+});
+window.addEventListener('keyup',e=>{
+  if(e.key===' '){onPedalChange(false);return;}
+  const n=KEYMAP[e.key.toLowerCase()];
+  if(n){held.delete(e.key);releaseNote(n);}
+});
+
+/* ══ CONTRÔLES ══════════════════════════════════════════ */
+function bind(id,cb){document.getElementById(id).addEventListener('input',cb);}
+function bindC(id,cb){document.getElementById(id).addEventListener('change',cb);}
+bind('bsize',e=>{blobSize=+e.target.value;document.getElementById('bsize-v').textContent=e.target.value;});
+bind('rough',e=>{roughness=+e.target.value/100;document.getElementById('rough-v').textContent=e.target.value+'%';});
+bind('irid',e=>{iridescence=+e.target.value/100;document.getElementById('irid-v').textContent=e.target.value+'%';});
+bind('fade',e=>{fadeRate=+e.target.value/100;document.getElementById('fade-v').textContent=e.target.value+'%';});
+bind('rotspd',e=>{rotSpd=+e.target.value;document.getElementById('rotspd-v').textContent=e.target.value;});
+bindC('pal-sel',e=>{palIdx=+e.target.value;});
+bindC('bg-sel',e=>{
+  bgHex=parseInt(e.target.value);
+  scene.background=new THREE.Color(bgHex);
+  scene.fog=new THREE.Fog(bgHex,18,35);
+});
+bindC('grid-sel',e=>{showGrid=e.target.value==='1';gridGroup.visible=showGrid;});
+bindC('traj-sel',e=>{
+  showTraj=e.target.value==='1';
+  trajectoryLines.forEach(t=>t.line.visible=showTraj);
+});
+bindC('rot-mode',e=>{rotMode=e.target.value;});
+
+/* ══ RESIZE ════════════════════════════════════════════ */
+window.addEventListener('resize',()=>{
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+});
+
+animate();
+</script>
+</body>
+</html>
