@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Piano Peinture V5 – Liquid + 3D</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080808;overflow:hidden;font-family:'Courier New',monospace}
+#wrap{position:fixed;top:0;left:0;width:100vw;height:100vh}
+canvas{position:absolute;top:0;left:0;width:100%;height:100%}
+#ui{position:fixed;top:14px;left:14px;z-index:20;display:flex;flex-direction:column;gap:7px;pointer-events:none}
+.panel{background:rgba(0,0,0,0.68);border:0.5px solid rgba(255,255,255,0.13);border-radius:8px;padding:9px 13px;pointer-events:all}
+.ptitle{font-size:9px;letter-spacing:.14em;color:rgba(255,255,255,.28);text-transform:uppercase;margin-bottom:7px}
+.row{display:flex;align-items:center;gap:9px;margin:4px 0}
+label{font-size:11px;color:rgba(255,255,255,.38);min-width:82px}
+select{background:rgba(255,255,255,.06);border:0.5px solid rgba(255,255,255,.16);border-radius:4px;color:rgba(255,255,255,.82);padding:3px 6px;font-size:11px;font-family:inherit;cursor:pointer;outline:none}
+input[type=range]{-webkit-appearance:none;width:88px;height:3px;border-radius:2px;background:rgba(255,255,255,.14);outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:#9b96d4;cursor:pointer}
+.val{font-size:11px;color:rgba(255,255,255,.38);min-width:32px}
+#midi-dot{width:8px;height:8px;border-radius:50%;background:#333;flex-shrink:0;transition:background .4s}
+#midi-dot.on{background:#4dff91;box-shadow:0 0 5px #4dff91}
+#midi-dot.err{background:#ff5555}
+#note-log{display:flex;flex-direction:column;gap:3px;max-height:80px;overflow:hidden}
+.nrow{display:flex;align-items:center;gap:7px;font-size:10px}
+.nbadge{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+#hint{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:rgba(255,255,255,.2);font-size:13px;line-height:2.2;pointer-events:none;transition:opacity 1.5s;z-index:5}
+#hint.gone{opacity:0}
+#kbhint{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);font-size:10px;color:rgba(255,255,255,.13);pointer-events:none;z-index:5}
+#ped-ind{position:fixed;bottom:10px;right:14px;font-size:10px;letter-spacing:.1em;pointer-events:none;color:rgba(255,255,255,.15);z-index:5}
+#ped-ind.on{color:#9b96d4}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cGL"></canvas>   <!-- Liquid toy WebGL (bas) -->
+  <canvas id="c3D"></canvas>   <!-- Grille + trajectoires 3D (transparent, haut) -->
+</div>
+
+<div id="ui">
+  <div class="panel">
+    <div class="row" style="gap:8px">
+      <div id="midi-dot"></div>
+      <span id="midi-label" style="font-size:11px;color:rgba(255,255,255,.55)">Connexion MIDI…</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ptitle">Texture liquide</div>
+    <div class="row"><label>Palette</label>
+      <select id="pal-sel">
+        <option value="0">0 – Saturée</option><option value="1">1 – Pastel</option>
+        <option value="2">2 – Chaude</option><option value="3">3 – Vive</option>
+        <option value="4">4 – Bleu-violet</option>
+      </select>
+    </div>
+    <div class="row"><label>Fond</label>
+      <select id="bg-sel">
+        <option value="0.0,0.0,0.0">Noir</option>
+        <option value="0.024,0.039,0.141">Bleu nuit</option>
+        <option value="0.071,0.024,0.110">Violet sombre</option>
+        <option value="0.957,0.941,0.910">Blanc chaud</option>
+      </select>
+    </div>
+    <div class="row"><label>Fade</label>
+      <input type="range" id="fade" min="1" max="80" value="22" step="1">
+      <span class="val" id="fade-v">22</span>
+    </div>
+    <div class="row"><label>Turbulence</label>
+      <input type="range" id="turb" min="0" max="100" value="45" step="5">
+      <span class="val" id="turb-v">45%</span>
+    </div>
+    <div class="row"><label>Expansion</label>
+      <input type="range" id="expan" min="0" max="100" value="55" step="5">
+      <span class="val" id="expan-v">55%</span>
+    </div>
+    <div class="row"><label>Taille blob</label>
+      <input type="range" id="blobr" min="1" max="35" value="9" step="1">
+      <span class="val" id="blobr-v">9%</span>
+    </div>
+    <div class="row"><label>Lumière</label>
+      <input type="range" id="lightpow" min="2" max="40" value="18" step="1">
+      <span class="val" id="lightpow-v">18</span>
+    </div>
+    <div class="row"><label>Arc-en-ciel</label>
+      <input type="range" id="rainbow" min="0" max="100" value="55" step="5">
+      <span class="val" id="rainbow-v">55%</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ptitle">Espace 3D</div>
+    <div class="row"><label>Grille</label>
+      <select id="grid-sel"><option value="1">Visible</option><option value="0">Cachée</option></select>
+    </div>
+    <div class="row"><label>Trajectoires</label>
+      <select id="traj-sel"><option value="1">Visibles</option><option value="0">Cachées</option></select>
+    </div>
+    <div class="row"><label>Profondeur</label>
+      <input type="range" id="depth" min="10" max="100" value="55" step="5">
+      <span class="val" id="depth-v">55%</span>
+    </div>
+    <div class="row"><label>Mode rotation</label>
+      <select id="rot-mode">
+        <option value="auto">Automatique</option>
+        <option value="pedal">Pédale</option>
+        <option value="off">Fixe</option>
+      </select>
+    </div>
+    <div class="row"><label>Vitesse rot.</label>
+      <input type="range" id="rotspd" min="1" max="200" value="30" step="1">
+      <span class="val" id="rotspd-v">30</span>
+    </div>
+    <div class="row"><label>Angle/pédale</label>
+      <input type="range" id="rotamt" min="5" max="90" value="25" step="5">
+      <span class="val" id="rotamt-v">25°</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ptitle">Notes jouées</div>
+    <div id="note-log"></div>
+  </div>
+</div>
+
+<div id="hint">Jouez sur votre clavier MIDI<br>
+  <span style="font-size:11px">A S D F G H J K &nbsp;|&nbsp; W E T Y U</span><br>
+  <span style="font-size:10px;opacity:.6">Espace=pédale &nbsp; C=effacer</span>
+</div>
+<div id="kbhint">A S D F G H J K &nbsp;|&nbsp; W E T Y U &nbsp;|&nbsp; Espace=pédale &nbsp; C=effacer</div>
+<div id="ped-ind">PÉDALE</div>
+
+<script>
+/* ══ PALETTES ══════════════════════════════════════════ */
+const PALETTES=[
+  {C:[0,55,95],Cs:[285,85,45],D:[55,90,60],Ds:[25,70,65],E:[200,80,70],F:[350,90,35],Fs:[220,75,75],G:[30,85,65],Gs:[275,70,50],A:[120,85,55],As:[320,85,40],B:[210,85,80]},
+  {C:[5,35,80],Cs:[290,30,85],D:[60,40,85],Ds:[35,35,80],E:[205,35,85],F:[355,40,75],Fs:[225,35,85],G:[35,40,85],Gs:[280,35,80],A:[125,40,80],As:[325,35,75],B:[215,40,88]},
+  {C:[15,75,65],Cs:[300,70,60],D:[70,75,70],Ds:[45,65,70],E:[215,70,75],F:[10,75,50],Fs:[235,70,80],G:[45,75,70],Gs:[290,65,65],A:[135,75,65],As:[340,70,55],B:[225,75,85]},
+  {C:[0,100,60],Cs:[285,100,55],D:[55,100,70],Ds:[25,100,75],E:[200,100,80],F:[350,100,45],Fs:[220,100,85],G:[30,100,75],Gs:[275,100,60],A:[120,100,65],As:[320,100,50],B:[210,100,90]},
+  {C:[260,70,50],Cs:[275,75,45],D:[285,65,55],Ds:[295,70,60],E:[305,65,65],F:[315,75,40],Fs:[325,70,70],G:[270,75,60],Gs:[280,65,50],A:[290,70,55],As:[300,75,45],B:[250,80,80]}
+];
+const NOTE_NAMES=['C','Cs','D','Ds','E','F','Fs','G','Gs','A','As','B'];
+const NOTE_MIN=37,NOTE_MAX=97;
+function hsl2rgb(h,s,l){s/=100;l/=100;const a=s*Math.min(l,1-l);const f=n=>{const k=(n+h/30)%12;return l-a*Math.max(-1,Math.min(k-3,9-k,1))};return[f(0),f(8),f(4)];}
+
+/* ══ ÉTAT GLOBAL ═══════════════════════════════════════ */
+let W,H;
+let palIdx=0,bgColor=[0,0,0],fadeParam=22,turbulence=0.45,expansion=0.55;
+let blobRadius=0.09,lightPow=18,rainbowStr=0.55;
+let showGrid=true,showTraj=true,depthStrength=0.55;
+let rotMode='auto',rotSpd=30,rotAmt=25;
+let camAngle=0,targetCamAngle=0;
+let pedalDown=false,firstNote=false,timeX=0;
+const activeNotes=new Map();
+const trajectories=[];
+const NOTE_MAX_TRAJ=220;
+
+/* ══ PROJECTION 3D (pour grille + traj) ════════════════ */
+const FOCAL=1.9,SCALE=1.35,MARG=0.09;
+function project(x3,y3,z3){
+  const cosA=Math.cos(camAngle),sinA=Math.sin(camAngle);
+  const rx=x3*cosA-(z3-0.5)*sinA;
+  const rz=x3*sinA+(z3-0.5)*cosA+0.5;
+  const d=Math.max(0.15,FOCAL-rz*depthStrength);
+  const BW=W*(1-2*MARG),BH=H*(1-2*MARG);
+  return{sx:W*MARG+BW*0.5+rx/d*(BW*0.5)*SCALE,
+         sy:H*MARG+BH*0.5-y3/d*(BH*0.5)*SCALE*0.88,
+         sc:1/d};
+}
+
+/* ══ NOTE → MONDE ════════════════════════════════════ */
+function noteToWorld(note,vel){
+  const y3=((note-NOTE_MIN)/(NOTE_MAX-NOTE_MIN))*2-1;
+  const z3=Math.max(0.02,Math.min(0.97,(vel-1)/126));
+  const x3=Math.sin(timeX*0.08)*0.82;
+  return{x3,y3,z3};
+}
+
+/* Note → position écran normalisée [0..1] pour le shader */
+function noteToUV(note,vel){
+  const{x3,y3,z3}=noteToWorld(note,vel);
+  const{sx,sy}=project(x3,y3,z3);
+  return[sx/W, sy/H];
+}
+
+/* ══ CANVAS 3D (grille + trajectoires) ══════════════════ */
+const c3D=document.getElementById('c3D');
+const g3D=c3D.getContext('2d');
+
+function drawGrid3D(){
+  if(!showGrid)return;
+  g3D.save();
+  g3D.strokeStyle='rgba(255,255,255,0.10)';
+  g3D.lineWidth=0.8*devicePixelRatio;
+  const NG=8;
+  for(let i=0;i<=NG;i++){
+    const t=i/NG,x=t*2-1,y=t*2-1;
+    let a=project(x,-1,0.02),b=project(x,1,0.02);
+    g3D.beginPath();g3D.moveTo(a.sx,a.sy);g3D.lineTo(b.sx,b.sy);g3D.stroke();
+    a=project(-1,y,0.02);b=project(1,y,0.02);
+    g3D.beginPath();g3D.moveTo(a.sx,a.sy);g3D.lineTo(b.sx,b.sy);g3D.stroke();
+  }
+  g3D.strokeStyle='rgba(255,255,255,0.07)';
+  for(let i=1;i<=5;i++){
+    const z=i/6;
+    const tl=project(-1,1,z),tr=project(1,1,z),bl=project(-1,-1,z),br=project(1,-1,z);
+    g3D.beginPath();g3D.moveTo(tl.sx,tl.sy);g3D.lineTo(tr.sx,tr.sy);g3D.stroke();
+    g3D.beginPath();g3D.moveTo(bl.sx,bl.sy);g3D.lineTo(br.sx,br.sy);g3D.stroke();
+    g3D.beginPath();g3D.moveTo(tl.sx,tl.sy);g3D.lineTo(bl.sx,bl.sy);g3D.stroke();
+    g3D.beginPath();g3D.moveTo(tr.sx,tr.sy);g3D.lineTo(br.sx,br.sy);g3D.stroke();
+  }
+  g3D.strokeStyle='rgba(255,255,255,0.14)';
+  [[-1,-1],[-1,1],[1,-1],[1,1]].forEach(([x,y])=>{
+    const a=project(x,y,0.02),b=project(x,y,0.98);
+    g3D.beginPath();g3D.moveTo(a.sx,a.sy);g3D.lineTo(b.sx,b.sy);g3D.stroke();
+  });
+  g3D.restore();
+}
+
+function drawTrajectories3D(){
+  if(!showTraj||trajectories.length<2)return;
+  g3D.save();
+  g3D.lineWidth=1.0*devicePixelRatio;
+  for(let i=1;i<trajectories.length;i++){
+    const a=trajectories[i-1],b=trajectories[i];
+    const pa=project(a.x3,a.y3,a.z3),pb=project(b.x3,b.y3,b.z3);
+    const alpha=Math.min(
+      Math.max(0,1-a.age/a.maxAge),
+      Math.max(0,1-b.age/b.maxAge)
+    )*0.55;
+    if(alpha<0.01)continue;
+    const[r,gv,bl]=b.color;
+    g3D.strokeStyle=`rgba(${Math.round(r*255)},${Math.round(gv*255)},${Math.round(bl*255)},${alpha.toFixed(3)})`;
+    g3D.beginPath();g3D.moveTo(pa.sx,pa.sy);g3D.lineTo(pb.sx,pb.sy);g3D.stroke();
+    // Point sur chaque note
+    const{sx,sy,sc}=pb;
+    g3D.beginPath();g3D.arc(sx,sy,3*sc*devicePixelRatio,0,Math.PI*2);
+    g3D.fillStyle=`rgba(${Math.round(r*255)},${Math.round(gv*255)},${Math.round(bl*255)},${(alpha*1.5).toFixed(3)})`;
+    g3D.fill();
+  }
+  g3D.restore();
+}
+
+/* ══ WEBGL LIQUID TOY ══════════════════════════════════ */
+const cGL=document.getElementById('cGL');
+let gl=null,glOK=false;
+let progA,progImg,fbA,fbB,quadBuf;
+
+const VS=`#version 300 es
+in vec2 a_pos;out vec2 v_uv;
+void main(){v_uv=(a_pos+1.0)*0.5;gl_Position=vec4(a_pos,0,1);}`;
+
+const FS_A=`#version 300 es
+precision highp float;
+in vec2 v_uv;out vec4 o;
+uniform sampler2D u_prev;
+uniform float u_time,u_dt,u_fade,u_turb,u_expan,u_brad;
+uniform vec3 u_bg;
+#define MAX 16
+uniform int u_n;
+uniform vec2 u_pos[MAX];
+uniform vec3 u_col[MAX];
+uniform float u_vel[MAX];
+
+float h21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float noise(vec2 p){
+  vec2 i=floor(p),f=fract(p),u=f*f*(3.-2.*f);
+  return mix(mix(h21(i),h21(i+vec2(1,0)),u.x),
+             mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),u.x),u.y);
+}
+float fbm(vec2 p){
+  float v=0.,a=.5;
+  for(int i=0;i<4;i++){v+=a*noise(p);p=p*2.1+vec2(1.7,9.2);a*=.5;}
+  return v;
+}
+
+void main(){
+  vec2 uv=v_uv;
+  ivec2 sz=textureSize(u_prev,0);
+  vec2 px=1./vec2(sz);
+  vec2 asp=vec2(float(sz.x)/float(sz.y),1.);
+
+  // Lire frame précédente
+  vec4 prev=texture(u_prev,uv);
+  float height=prev.r;
+  vec3 col=prev.gba;
+
+  // Gradient normal → expansion (Liquid toy)
+  float dx=texture(u_prev,uv+vec2(px.x,0)).r-texture(u_prev,uv-vec2(px.x,0)).r;
+  float dy=texture(u_prev,uv+vec2(0,px.y)).r-texture(u_prev,uv-vec2(0,px.y)).r;
+  vec2 grad=vec2(dx,dy);
+  vec2 off=-grad*u_expan*1.2/asp;
+
+  // Turbulence bruit (Liquid toy)
+  float ang=fbm(uv*6.+u_time*.4)*6.28318+u_time*.3;
+  off+=vec2(cos(ang),sin(ang))*u_turb*.004/asp;
+
+  // Advection (lire position déformée)
+  vec4 adv=texture(u_prev,uv+off);
+
+  // Fade temporel (Liquid toy : paint = max(paint, frame - fade*dt))
+  float nh=max(adv.r - u_dt*u_fade*.5, 0.);
+  vec3 nc=adv.gba;
+
+  // Injecter les notes MIDI comme gouttes de peinture
+  for(int i=0;i<MAX;i++){
+    if(i>=u_n)break;
+    vec2 d=(uv-u_pos[i])*asp;
+    float dist=length(d);
+    float r=u_brad*(.4+u_vel[i]*.9);
+    // Irrégularité radiale (bruit)
+    float irr=fbm(uv*18.+vec2(float(i)*4.1,u_time*.2))*.28;
+    float blob=smoothstep(r*(1.+irr),r*.25,dist);
+    if(blob>.001){
+      float str=blob*(.35+u_vel[i]*.55);
+      nh=max(nh,str);
+      nc=mix(nc,u_col[i],blob*.8);
+    }
+  }
+
+  o=vec4(clamp(nh,0.,1.),clamp(nc,0.,1.));
+}`;
+
+const FS_IMG=`#version 300 es
+precision highp float;
+in vec2 v_uv;out vec4 o;
+uniform sampler2D u_buf;
+uniform float u_lpow,u_rainbow;
+uniform vec3 u_bg;
+void main(){
+  vec2 uv=v_uv;
+  ivec2 sz=textureSize(u_buf,0);
+  vec2 px=3./vec2(sz);
+  vec4 data=texture(u_buf,uv);
+  float gray=data.r;
+  vec3 pc=data.gba;
+
+  // Normale depuis gradient de hauteur
+  float hL=texture(u_buf,uv-vec2(px.x,0)).r;
+  float hR=texture(u_buf,uv+vec2(px.x,0)).r;
+  float hD=texture(u_buf,uv-vec2(0,px.y)).r;
+  float hU=texture(u_buf,uv+vec2(0,px.y)).r;
+  vec3 nrm=normalize(vec3(hR-hL,hU-hD,gray*gray*2.+.08));
+
+  // Éclairage (Liquid toy)
+  vec3 ld=normalize(vec3(.5,.8,1.6));
+  float diff=dot(nrm,ld)*.5+.5;
+  vec3 col=vec3(.22)*(1.-abs(dot(nrm,vec3(0,0,1)))); // backlight
+  col+=vec3(.6)*pow(max(0.,dot(nrm,ld)),u_lpow);      // spéculaire
+
+  // Couleur de la note
+  col+=pc*smoothstep(.012,.12,gray)*diff;
+
+  // Arc-en-ciel irisé (Liquid toy)
+  vec3 rb=.5+.5*cos(vec3(1,2,3)+dot(nrm,ld)*4.-uv.y*3.-3.);
+  col+=rb*u_rainbow*smoothstep(.05,.0,gray)*.6;
+  col+=rb*u_rainbow*pow(max(0.,dot(nrm,ld)),u_lpow)*.4;
+
+  // Fond
+  col=mix(u_bg,clamp(col,0.,1.),smoothstep(.005,.05,gray));
+  o=vec4(col,1);
+}`;
+
+function mkShader(src,type){
+  const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}
+  return s;
+}
+function mkProg(vs,fs){
+  const p=gl.createProgram();
+  const sv=mkShader(vs,gl.VERTEX_SHADER),sf=mkShader(fs,gl.FRAGMENT_SHADER);
+  if(!sv||!sf)return null;
+  gl.attachShader(p,sv);gl.attachShader(p,sf);gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)){console.error(gl.getProgramInfoLog(p));return null;}
+  return p;
+}
+function mkFB(){
+  const t=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,W,H,0,gl.RGBA,gl.FLOAT,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  const f=gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+  gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
+  return{tex:t,fb:f};
+}
+
+function initGL(){
+  gl=cGL.getContext('webgl2');
+  if(!gl){console.warn('WebGL2 indisponible');return false;}
+  if(!gl.getExtension('EXT_color_buffer_float')){console.warn('EXT_color_buffer_float manquant');return false;}
+  progA=mkProg(VS,FS_A);
+  progImg=mkProg(VS,FS_IMG);
+  if(!progA||!progImg)return false;
+  quadBuf=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+  fbA=mkFB();fbB=mkFB();
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  return true;
+}
+
+function bq(p){
+  const l=gl.getAttribLocation(p,'a_pos');
+  gl.enableVertexAttribArray(l);
+  gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
+  gl.vertexAttribPointer(l,2,gl.FLOAT,false,0,0);
+}
+function u1f(p,n,v){gl.uniform1f(gl.getUniformLocation(p,n),v);}
+function u1i(p,n,v){gl.uniform1i(gl.getUniformLocation(p,n),v);}
+function u3f(p,n,a){gl.uniform3f(gl.getUniformLocation(p,n),a[0],a[1],a[2]);}
+
+const MAX_N=16;
+function renderGL(dt,time){
+  if(!glOK)return;
+  const notes=[...activeNotes.values()].filter(n=>n.alive).slice(0,MAX_N);
+  const pA=new Float32Array(MAX_N*2);
+  const cA=new Float32Array(MAX_N*3);
+  const vA=new Float32Array(MAX_N);
+  notes.forEach((n,i)=>{
+    pA[i*2]=n.uv[0];pA[i*2+1]=1-n.uv[1]; // flip Y pour WebGL
+    cA[i*3]=n.color[0];cA[i*3+1]=n.color[1];cA[i*3+2]=n.color[2];
+    vA[i]=n.vel;
+  });
+
+  // Passe 1 : Buffer A
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbB.fb);
+  gl.viewport(0,0,W,H);
+  gl.useProgram(progA);bq(progA);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,fbA.tex);
+  u1i(progA,'u_prev',0);
+  u1f(progA,'u_time',time);u1f(progA,'u_dt',dt);
+  u1f(progA,'u_fade',fadeParam/100);
+  u1f(progA,'u_turb',turbulence);u1f(progA,'u_expan',expansion);
+  u1f(progA,'u_brad',blobRadius);
+  u1i(progA,'u_n',notes.length);
+  u3f(progA,'u_bg',bgColor);
+  if(notes.length>0){
+    gl.uniform2fv(gl.getUniformLocation(progA,'u_pos'),pA);
+    gl.uniform3fv(gl.getUniformLocation(progA,'u_col'),cA);
+    gl.uniform1fv(gl.getUniformLocation(progA,'u_vel'),vA);
+  }
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  const tmp=fbA;fbA=fbB;fbB=tmp;
+
+  // Passe 2 : Image finale
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  gl.viewport(0,0,W,H);
+  gl.useProgram(progImg);bq(progImg);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,fbA.tex);
+  u1i(progImg,'u_buf',0);
+  u1f(progImg,'u_lpow',lightPow);u1f(progImg,'u_rainbow',rainbowStr);
+  u3f(progImg,'u_bg',bgColor);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+function clearGL(){
+  if(!glOK)return;
+  [fbA,fbB].forEach(f=>{
+    gl.bindFramebuffer(gl.FRAMEBUFFER,f.fb);
+    gl.clearColor(bgColor[0],bgColor[1],bgColor[2],0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  });
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+}
+
+/* ══ NOTES ══════════════════════════════════════════════ */
+function spawnNote(note,vel){
+  const pal=PALETTES[palIdx];
+  const name=NOTE_NAMES[note%12];
+  const hsl=pal[name]||[0,80,60];
+  const rgb=hsl2rgb(hsl[0],hsl[1],Math.min(93,hsl[2]+Math.floor(note/12)*3));
+  const{x3,y3,z3}=noteToWorld(note,vel);
+  const uv=noteToUV(note,vel);
+  const velN=(vel-1)/126;
+  activeNotes.set(note,{uv,color:rgb,vel:velN,alive:true,x3,y3,z3});
+  trajectories.push({x3,y3,z3,color:rgb,age:0,maxAge:9000});
+  if(trajectories.length>NOTE_MAX_TRAJ)trajectories.shift();
+  timeX+=0.7+(vel/127)*1.3;
+  if(!firstNote){firstNote=true;document.getElementById('hint').classList.add('gone');}
+  logNote(note,vel,rgb);
+}
+
+function releaseNote(note){
+  const n=activeNotes.get(note);
+  if(n){n.alive=false;setTimeout(()=>activeNotes.delete(note),600);}
+}
+
+function onPedalChange(down){
+  const was=pedalDown;pedalDown=down;
+  document.getElementById('ped-ind').classList.toggle('on',down);
+  if(!down&&was){
+    if(rotMode==='pedal') targetCamAngle+=rotAmt*Math.PI/180;
+    [...activeNotes.keys()].forEach(n=>releaseNote(n));
+  }
+}
+
+/* ══ RESIZE ════════════════════════════════════════════ */
+function resize(){
+  W=window.innerWidth;H=window.innerHeight;
+  [cGL,c3D].forEach(c=>{c.width=W*devicePixelRatio;c.height=H*devicePixelRatio;});
+  if(glOK){
+    if(fbA){gl.deleteTexture(fbA.tex);gl.deleteFramebuffer(fbA.fb);}
+    if(fbB){gl.deleteTexture(fbB.tex);gl.deleteFramebuffer(fbB.fb);}
+    fbA=mkFB();fbB=mkFB();
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  }
+  // Mettre à jour les UV de toutes les notes actives après resize
+  for(const[note,nd] of activeNotes){
+    const vel=Math.round(nd.vel*126+1);
+    nd.uv=noteToUV(note,vel);
+  }
+}
+
+/* ══ BOUCLE PRINCIPALE ══════════════════════════════════ */
+let lastT=0;
+function loop(t){
+  requestAnimationFrame(loop);
+  const dt=Math.min(50,t-lastT)/1000;lastT=t;
+  const time=t/1000;
+
+  // Rotation caméra
+  if(rotMode==='auto'){
+    camAngle+=rotSpd*0.00015*dt*60;
+  } else {
+    const diff=targetCamAngle-camAngle;
+    if(Math.abs(diff)>0.0005)camAngle+=diff*0.055*dt*60;
+  }
+
+  // Vieillissement trajectoires
+  for(const tr of trajectories)tr.age+=dt*60;
+
+  // Rendu WebGL (Liquid toy)
+  renderGL(dt,time);
+
+  // Rendu Canvas 3D (grille + traj) — transparent par dessus
+  const W2=W*devicePixelRatio,H2=H*devicePixelRatio;
+  g3D.clearRect(0,0,W2,H2);
+
+  // Adapter les dimensions pour le contexte 3D
+  const savedW=W,savedH=H;
+  W=W2;H=H2;
+  drawGrid3D();
+  drawTrajectories3D();
+  W=savedW;H=savedH;
+}
+
+/* ══ LOG ═══════════════════════════════════════════════ */
+const logEl=document.getElementById('note-log');
+function logNote(note,vel,rgb){
+  const name=NOTE_NAMES[note%12],oct=Math.floor(note/12)-1;
+  const d=document.createElement('div');d.className='nrow';
+  d.innerHTML=`<div class="nbadge" style="background:rgb(${Math.round(rgb[0]*255)},${Math.round(rgb[1]*255)},${Math.round(rgb[2]*255)})"></div><span style="color:rgba(255,255,255,.72);min-width:26px">${name}${oct}</span><span style="color:rgba(255,255,255,.32)">vel ${vel}</span>`;
+  logEl.prepend(d);if(logEl.children.length>6)logEl.removeChild(logEl.lastChild);
+}
+
+/* ══ MIDI ══════════════════════════════════════════════ */
+const midiDot=document.getElementById('midi-dot');
+const midiLbl=document.getElementById('midi-label');
+function onMidi(e){
+  const st=e.data[0]&0xF0,note=e.data[1],vel=e.data[2];
+  if(st===0x90&&vel>0&&note>=NOTE_MIN&&note<=NOTE_MAX)spawnNote(note,vel);
+  if((st===0x80||(st===0x90&&vel===0))&&note>=NOTE_MIN&&note<=NOTE_MAX)releaseNote(note);
+  if(st===0xB0&&note===64)onPedalChange(vel>=64);
+}
+if(navigator.requestMIDIAccess){
+  navigator.requestMIDIAccess({sysex:false}).then(midi=>{
+    midiDot.classList.add('on');midiLbl.textContent='MIDI connecté';
+    const conn=()=>{for(const i of midi.inputs.values())i.onmidimessage=onMidi;};
+    conn();midi.onstatechange=conn;
+  }).catch(()=>{midiDot.classList.add('err');midiLbl.textContent='Accès MIDI refusé';});
+}else{midiDot.classList.add('err');midiLbl.textContent='WebMIDI non supporté (Chrome requis)';}
+
+/* ══ CLAVIER ═══════════════════════════════════════════ */
+const KEYMAP={a:60,w:61,s:62,e:63,d:64,f:65,t:66,g:67,y:68,h:69,u:70,j:71,k:72,l:73};
+const held=new Set();
+window.addEventListener('keydown',e=>{
+  if(e.repeat)return;
+  if(e.key===' '){e.preventDefault();onPedalChange(true);return;}
+  if(e.key==='c'||e.key==='C'){
+    clearGL();trajectories.length=0;activeNotes.clear();return;
+  }
+  const n=KEYMAP[e.key.toLowerCase()];
+  if(n&&!held.has(e.key)){held.add(e.key);spawnNote(n,Math.floor(45+Math.random()*75));}
+});
+window.addEventListener('keyup',e=>{
+  if(e.key===' '){onPedalChange(false);return;}
+  const n=KEYMAP[e.key.toLowerCase()];
+  if(n){held.delete(e.key);releaseNote(n);}
+});
+
+/* ══ CONTRÔLES ══════════════════════════════════════════ */
+function bind(id,cb){document.getElementById(id).addEventListener('input',cb);}
+function bindC(id,cb){document.getElementById(id).addEventListener('change',cb);}
+bind('fade',e=>{fadeParam=+e.target.value;document.getElementById('fade-v').textContent=e.target.value;});
+bind('turb',e=>{turbulence=+e.target.value/100;document.getElementById('turb-v').textContent=e.target.value+'%';});
+bind('expan',e=>{expansion=+e.target.value/100;document.getElementById('expan-v').textContent=e.target.value+'%';});
+bind('blobr',e=>{blobRadius=+e.target.value/100;document.getElementById('blobr-v').textContent=e.target.value+'%';});
+bind('lightpow',e=>{lightPow=+e.target.value;document.getElementById('lightpow-v').textContent=e.target.value;});
+bind('rainbow',e=>{rainbowStr=+e.target.value/100;document.getElementById('rainbow-v').textContent=e.target.value+'%';});
+bind('depth',e=>{depthStrength=+e.target.value/100;document.getElementById('depth-v').textContent=e.target.value+'%';});
+bind('rotspd',e=>{rotSpd=+e.target.value;document.getElementById('rotspd-v').textContent=e.target.value;});
+bind('rotamt',e=>{rotAmt=+e.target.value;document.getElementById('rotamt-v').textContent=e.target.value+'°';});
+bindC('pal-sel',e=>{palIdx=+e.target.value;});
+bindC('bg-sel',e=>{bgColor=e.target.value.split(',').map(Number);clearGL();});
+bindC('grid-sel',e=>{showGrid=e.target.value==='1';});
+bindC('traj-sel',e=>{showTraj=e.target.value==='1';});
+bindC('rot-mode',e=>{rotMode=e.target.value;});
+
+/* ══ INIT ══════════════════════════════════════════════ */
+resize();
+window.addEventListener('resize',resize);
+glOK=initGL();
+if(!glOK)document.getElementById('midi-label').textContent+=' — WebGL2 requis';
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
