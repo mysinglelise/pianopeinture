@@ -191,19 +191,17 @@ void main(){
   o=vec4(clamp(nh,0.,1.),clamp(nc,0.,1.));
 }`;
 
-// Shader de rendu adapté fond clair/sombre
-const FS_OUT=`#version 300 es
+// Shader rendu fond SOMBRE — exactement l'original
+const FS_OUT_DARK=`#version 300 es
 precision mediump float;
 in vec2 uv;out vec4 o;
 uniform sampler2D buf;
-uniform float rainbow,lpow,bgLum;
+uniform float rainbow,lpow;
 uniform vec3 bg;
-
 void main(){
   vec2 px=3./vec2(textureSize(buf,0));
   vec4 d=texture(buf,uv);
-  float g=d.r;
-  vec3 pc=d.gba;
+  float g=d.r;vec3 pc=d.gba;
   float hL=texture(buf,uv-vec2(px.x,0)).r;
   float hR=texture(buf,uv+vec2(px.x,0)).r;
   float hD=texture(buf,uv-vec2(0,px.y)).r;
@@ -213,25 +211,52 @@ void main(){
   float diff=dot(nm,ld)*.5+.5;
   float spec=pow(max(0.,dot(nm,ld)),lpow)*.7;
   vec3 rb=.5+.5*cos(vec3(1,2,3)+dot(nm,ld)*4.-uv.y*3.-3.);
-
-  // Rendu original (fond sombre) — parfaite définition
   vec3 col=pc*smoothstep(.008,.08,g)*diff+vec3(spec);
   col+=vec3(.15)*(1.-abs(dot(nm,vec3(0,0,1))));
   col+=rb*rainbow*smoothstep(.03,.0,g)*.8;
   col+=rb*rainbow*spec*.5;
+  col=mix(bg,clamp(col,0.,1.),smoothstep(.004,.04,g));
+  o=vec4(col,1);
+}`;
 
-  // Correction fond clair uniquement : relever le plancher de couleur
-  // pour éviter les bordures noires (n'affecte pas le fond sombre)
-  float lightBgFix=bgLum*smoothstep(.004,.04,g)*(1.-diff)*0.6;
-  col+=bg*lightBgFix;
-
+// Shader rendu fond CLAIR — sans backlight noir, diff relevé
+const FS_OUT_LIGHT=`#version 300 es
+precision mediump float;
+in vec2 uv;out vec4 o;
+uniform sampler2D buf;
+uniform float rainbow,lpow;
+uniform vec3 bg;
+void main(){
+  vec2 px=3./vec2(textureSize(buf,0));
+  vec4 d=texture(buf,uv);
+  float g=d.r;
+  // Couleur : mélanger avec bg aux bords pour éviter le noir
+  vec3 pc=mix(bg,d.gba,smoothstep(0.0,0.08,g));
+  float hL=texture(buf,uv-vec2(px.x,0)).r;
+  float hR=texture(buf,uv+vec2(px.x,0)).r;
+  float hD=texture(buf,uv-vec2(0,px.y)).r;
+  float hU=texture(buf,uv+vec2(0,px.y)).r;
+  vec3 nm=normalize(vec3(hR-hL,hU-hD,g*g*2.+.06));
+  vec3 ld=normalize(vec3(.5,.8,1.6));
+  // Diff relevé : minimum 0.7 pour éviter zones sombres aux bords
+  float diff=max(0.7,dot(nm,ld)*.5+.5);
+  float spec=pow(max(0.,dot(nm,ld)),lpow)*.5;
+  vec3 rb=.5+.5*cos(vec3(1,2,3)+dot(nm,ld)*4.-uv.y*3.-3.);
+  // Pas de backlight (vec3(.15)...) — c'est lui qui crée le noir
+  vec3 col=pc*diff;
+  // Spéculaire teinté couleur du fond (pas blanc pur)
+  col+=mix(pc,bg,0.5)*spec;
+  col+=rb*rainbow*smoothstep(.03,.0,g)*.5;
+  col+=rb*rainbow*spec*.3;
   col=mix(bg,clamp(col,0.,1.),smoothstep(.004,.04,g));
   o=vec4(col,1);
 }`;
 
 function mkS(src,type){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}return s;}
 function mkP(vs,fs){const p=gl.createProgram();gl.attachShader(p,mkS(vs,gl.VERTEX_SHADER));gl.attachShader(p,mkS(fs,gl.FRAGMENT_SHADER));gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS)){console.error(gl.getProgramInfoLog(p));return null;}return p;}
-const pSim=mkP(VS,FS_SIM),pOut=mkP(VS,FS_OUT);
+const pSim=mkP(VS,FS_SIM);
+const pOutDark=mkP(VS,FS_OUT_DARK);
+const pOutLight=mkP(VS,FS_OUT_LIGHT);
 
 const qb=gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER,qb);
@@ -379,14 +404,14 @@ function loop(t){
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   const tmp=fbA;fbA=fbB;fbB=tmp;
 
-  // Rendu
+  // Rendu — choisir shader selon fond clair/sombre
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   gl.viewport(0,0,canvas.width,canvas.height);
+  const pOut=bgLum>0.5?pOutLight:pOutDark;
   gl.useProgram(pOut);bq(pOut);
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,fbA.tex);
   u1i(pOut,'buf',0);
   u1f(pOut,'rainbow',rainbow);u1f(pOut,'lpow',lpow);
-  u1f(pOut,'bgLum',bgLum);
   u3f(pOut,'bg',bgRGB);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
